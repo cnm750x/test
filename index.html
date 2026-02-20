@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>會員專區 - 代幣門檻解鎖</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0ff;
+      margin: 0;
+      padding: 40px 20px;
+      text-align: center;
+    }
+    h1 { color: #a78bfa; }
+    button {
+      background: #7c3aed;
+      color: white;
+      border: none;
+      padding: 14px 32px;
+      font-size: 1.1rem;
+      border-radius: 12px;
+      margin: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    button:hover { background: #9f7aea; transform: translateY(-2px); }
+    button:disabled { background: #4b5563; cursor: not-allowed; }
+    #status {
+      margin: 30px auto;
+      padding: 20px;
+      max-width: 600px;
+      border-radius: 12px;
+      background: #1e1e38;
+      min-height: 120px;
+      line-height: 1.6;
+    }
+    .content {
+      display: none;
+      margin-top: 40px;
+      padding: 30px;
+      background: #1a1a2e;
+      border-radius: 16px;
+      max-width: 700px;
+      margin-left: auto;
+      margin-right: auto;
+      border: 1px solid #4b5563;
+    }
+    .paywall {
+      color: #f87171;
+      font-size: 1.3rem;
+      font-weight: bold;
+    }
+    .success {
+      color: #34d399;
+      font-size: 1.4rem;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h1>會員專區（代幣門檻版）</h1>
+<p>需要持有 ≥ <b>100</b> 個「我的會員卡」代幣才能觀看內容</p>
+
+<button id="connectBtn">連接錢包（MetaMask）</button>
+<button id="checkBtn" disabled>檢查代幣數量</button>
+
+<div id="status">
+  請先點擊「連接錢包」
+</div>
+
+<div id="gatedContent" class="content">
+  <h2 class="success">✅ 驗證通過！歡迎進入付費內容區</h2>
+  <p>這是只有持有足夠代幣的人才看得到的內容～</p>
+  <ul style="text-align:left; max-width:500px; margin:30px auto;">
+    <li>這裡可以放你的課程影片</li>
+    <li>獨家文章、PDF下載</li>
+    <li>私人Discord邀請連結</li>
+    <li>未來活動優先報名資格</li>
+    <li>⋯⋯任何你想收費的東西</li>
+  </ul>
+  <p style="margin-top:40px;">感謝你的支持！💜</p>
+</div>
+
+<script src="https://cdn.ethers.io/lib/ethers-6.13.2.umd.min.js"></script>
+<script>
+// ─────────────── 你要改的四個地方 ────────────────
+const TOKEN_ADDRESS = "0x2170ed0880ac9a755fd29b2688956bd959f933f8";   // ← 改這裡
+const MIN_AMOUNT   = 100;                                 // ← 至少要持有的數量
+const NETWORK      = "mainnet";                           // "mainnet" 或 "sepolia" 或其他
+// const NETWORK   = "sepolia";                           // 測試網用這個
+
+// 標準 ERC-20 ABI（只需要這三個函數）
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)"
+];
+// ────────────────────────────────────────────────
+
+const connectBtn = document.getElementById("connectBtn");
+const checkBtn   = document.getElementById("checkBtn");
+const statusDiv  = document.getElementById("status");
+const contentDiv = document.getElementById("gatedContent");
+
+let provider;
+let signer;
+let userAddress;
+let tokenContract;
+
+// 1. 連接錢包
+connectBtn.onclick = async () => {
+  if (!window.ethereum) {
+    statusDiv.innerHTML = `<span style="color:#f87171">❌ 沒有偵測到 MetaMask 或其他錢包</span>`;
+    return;
+  }
+
+  try {
+    statusDiv.innerHTML = "正在請求連接錢包...";
+    const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    userAddress = accounts[0];
+
+    // 使用 ethers BrowserProvider (ethers v6)
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer   = await provider.getSigner();
+
+    // 顯示地址
+    const shortAddr = userAddress.slice(0,6) + "..." + userAddress.slice(-4);
+    statusDiv.innerHTML = `已連接：${shortAddr}<br>正在載入代幣資訊...`;
+
+    // 初始化代幣合約
+    tokenContract = new ethers.Contract(TOKEN_ADDRESS, ERC20_ABI, provider);
+
+    // 啟用檢查按鈕
+    checkBtn.disabled = false;
+    connectBtn.disabled = true;
+    connectBtn.textContent = "已連接 ✓";
+
+    // 順便顯示代幣符號（可選）
+    try {
+      const symbol = await tokenContract.symbol();
+      statusDiv.innerHTML += `<br>代幣：${symbol}`;
+    } catch(e) {}
+  } catch (err) {
+    statusDiv.innerHTML = `<span style="color:#f87171">連接失敗：${err.message || err}</span>`;
+  }
+};
+
+// 2. 檢查餘額
+checkBtn.onclick = async () => {
+  if (!tokenContract) {
+    statusDiv.innerHTML = "請先連接錢包";
+    return;
+  }
+
+  statusDiv.innerHTML = "正在查詢代幣餘額...";
+
+  try {
+    const rawBalance = await tokenContract.balanceOf(userAddress);
+    const decimals   = await tokenContract.decimals();
+
+    // 轉成人類可讀數字
+    const balance = Number(ethers.formatUnits(rawBalance, decimals));
+
+    statusDiv.innerHTML = `你的餘額：${balance.toFixed(4)} 個<br>`;
+
+    if (balance >= MIN_AMOUNT) {
+      statusDiv.innerHTML += `<span class="success">✅ 通過驗證！</span>`;
+      contentDiv.style.display = "block";
+    } else {
+      statusDiv.innerHTML += `<span class="paywall">
+        餘額不足（需要 ${MIN_AMOUNT} 個，目前只有 ${balance.toFixed(2)} 個）<br>
+        請先去 Uniswap / 交易所 / 合約購買
+      </span>`;
+      contentDiv.style.display = "none";
+    }
+  } catch (err) {
+    statusDiv.innerHTML = `<span style="color:#f87171">查詢失敗：${err.reason || err.message || err}</span>`;
+    console.error(err);
+  }
+};
+
+// 如果使用者換帳號或換網路，重新整理頁面比較保險
+window.ethereum?.on("accountsChanged", () => location.reload());
+window.ethereum?.on("chainChanged", () => location.reload());
+
+</script>
+</body>
+</html>
